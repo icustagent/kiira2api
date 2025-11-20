@@ -3,6 +3,7 @@
 """
 import re
 import json
+from uuid import uuid4
 import time
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
@@ -52,14 +53,27 @@ async def chat_completions(
             chat_service = ChatService(group_id=msg_group_id, token=msg_token)
 
         last_message = request.messages[-1] if request.messages else None
+        prompt = (
+            last_message.content
+            if last_message and hasattr(last_message, "content") and isinstance(last_message.content, str)
+            else ""
+        )
+        if prompt == "hi":
+            logger.info(f"验证接口是否可用，{request.model}，直接返回正常响应")
+            return {
+                "id": str(uuid4()),
+                "model": request.model,
+                "object":"chat.completion.chunk",
+                "choices": [{
+                    "index":0,
+                    "message":{"role": "assistant", "content": "hi"},
+                    "finish_reason":"stop"
+                }],
+                "created":int(time.time())
+            }
         # 如果请求流式响应
         if request.stream:
             if msg_group_id and msg_token:
-                prompt = (
-                    last_message.content
-                    if last_message and hasattr(last_message, "content") and isinstance(last_message.content, str)
-                    else ""
-                )
                 resources = chat_service._extract_images_from_messages([last_message]) if last_message else []
                 logger.info(f"构建提示词: {prompt}，提取图片资源数量: {len(resources)}")
                 group_id, at_account_no = chat_service.client.get_my_chat_group_list(request.model)
