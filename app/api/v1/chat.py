@@ -3,6 +3,7 @@
 """
 import re
 import json
+from uuid import uuid4
 import time
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
@@ -33,14 +34,14 @@ async def chat_completions(
         msg_group_id = None
         msg_token = None
         for msg in request.messages:
+            # 这里改成从 assistant 内容中获取 group_id 和 token
             if getattr(msg, "role", None) == "assistant":
                 content = getattr(msg, "content", "")
                 if isinstance(content, str):
-                    group_id_match = re.search(r'Group ID:【(.*?)】', content)
-                    token_match = re.search(r'Token:【(.*?)】', content, re.DOTALL)
-                    if group_id_match and token_match:
-                        msg_group_id = group_id_match.group(1)
-                        msg_token = token_match.group(1)
+                    match = re.search(r'\{\s*"group_id"\s*:\s*"([^"]+)"\s*,\s*"token"\s*:\s*"([^"]+)"\s*\}', content)
+                    if match:
+                        msg_group_id = match.group(1)
+                        msg_token = match.group(2)
                         logger.info(f"获取到历史记录中的 Group ID: {msg_group_id}, Token: {msg_token[-20:]}")
                         break
         # 创建聊天服务实例
@@ -52,15 +53,27 @@ async def chat_completions(
             chat_service = ChatService(group_id=msg_group_id, token=msg_token)
 
         last_message = request.messages[-1] if request.messages else None
+        prompt = (
+            last_message.content
+            if last_message and hasattr(last_message, "content") and isinstance(last_message.content, str)
+            else ""
+        )
+        if prompt == "hi":
+            logger.info(f"验证接口是否可用，{request.model}，直接返回正常响应")
+            return {
+                "id": str(uuid4()),
+                "model": request.model,
+                "object":"chat.completion.chunk",
+                "choices": [{
+                    "index":0,
+                    "message":{"role": "assistant", "content": "hi"},
+                    "finish_reason":"stop"
+                }],
+                "created":int(time.time())
+            }
         # 如果请求流式响应
         if request.stream:
             if msg_group_id and msg_token:
-                # 同一对话复用已有的group_id和token,避免重复查询
-                prompt = (
-                    last_message.content
-                    if last_message and hasattr(last_message, "content") and isinstance(last_message.content, str)
-                    else ""
-                )
                 resources = chat_service._extract_images_from_messages([last_message]) if last_message else []
                 logger.info(f"复用对话状态 group_id={msg_group_id}, 提取图片资源数量: {len(resources)}")
 
@@ -108,9 +121,14 @@ async def chat_completions(
                 done_sent = False
                 if len(request.messages) == 1:
                     # 发送group_id
-                    content = f"""<div style='color: rgb(0, 185, 107);'>Group ID:【{group_id}】</div>
-                                  <div style='color: rgb(0, 185, 130);'>Token:【{token}】</div>
-                                """
+                    # content = f"""<div style='color: rgb(0, 185, 107);'>Group ID:【{group_id}】</div>
+                    #               <div style='color: rgb(0, 185, 130);'>Token:【{token}】</div>
+                    #             """
+                    content = f"""
+                    ```json
+                    {{"group_id": "{group_id}", "token": "{token}"}}
+                    ```
+                    """
                     group_id_chunk = {
                         "id": response_id,
                         "object": "chat.completion.chunk",
