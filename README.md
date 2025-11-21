@@ -65,7 +65,7 @@ copy .env.example .env
 
 ```env
 # Agent 列表
-AGENT_LIST=["Nano Banana Pro🔥","Nano Banana Video Pro🔥","Sora 2: AI Video Remixer", "Veo 3: AI Video Weaver", "Midjourney Art Studio"]
+AGENT_LIST=["Nano Banana Pro🔥","Nano Banana Pro 🔥👉 Try Free","Sora 2: AI Video Remixer", "Veo 3: AI Video Weaver", "Midjourney Art Studio"]
 ```
 
 4. **运行服务**
