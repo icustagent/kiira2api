@@ -10,7 +10,7 @@ from typing import Optional
 from fastapi.responses import StreamingResponse
 from app.models.schemas import ChatCompletionRequest, ChatCompletionResponse
 from app.services.chat_service import ChatService
-from app.utils.stream_parser import parse_stream_response
+from app.utils.stream_parser import extract_media_from_data
 from app.utils.logger import get_logger
 from app.api.dependencies import verify_api_key
 
@@ -75,11 +75,21 @@ async def chat_completions(
         if request.stream:
             if msg_group_id and msg_token:
                 resources = chat_service._extract_images_from_messages([last_message]) if last_message else []
-                logger.info(f"构建提示词: {prompt}，提取图片资源数量: {len(resources)}")
-                group_id, at_account_no = chat_service.client.get_my_chat_group_list(request.model)
+                logger.info(f"复用对话状态 group_id={msg_group_id}, 提取图片资源数量: {len(resources)}")
+
+                # 直接使用已有的group_id和token
+                chat_service.client.group_id = msg_group_id
+                chat_service.client.token = msg_token
+
+                # 如果有at_account_no缓存则使用,否则查询一次
+                if not chat_service.client.at_account_no:
+                    _, at_account_no = chat_service.client.get_my_chat_group_list(request.model)
+                else:
+                    at_account_no = chat_service.client.at_account_no
+
                 task_id = chat_service.client.send_message(
                     message=prompt,
-                    at_account_no= at_account_no,
+                    at_account_no=at_account_no,
                     resources=resources if resources else None
                 )
                 result = {
@@ -187,14 +197,15 @@ async def chat_completions(
                             
                             try:
                                 data = json.loads(json_str)
-                                
-                                logger.info(f"解析数据: {data.get('choices', [])}")
-                                # 尝试解析 media_url
-                                parse_result = parse_stream_response(line)
+
+                                # 优化: 一次解析同时提取媒体URL和content,避免重复JSON解析
+                                parse_result = extract_media_from_data(data)
                                 if parse_result:
                                     parsed_media_url, parsed_media_type = parse_result
                                     media_type = parsed_media_type
                                     media_url = parsed_media_url
+                                    logger.debug(f"检测到媒体资源: {media_type} - {media_url[:50]}...")
+
                                 # 提取 content
                                 content = ""
                                 choices_data = data.get('choices', [])
