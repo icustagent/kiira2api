@@ -23,9 +23,10 @@ services:
       retries: 3
       start_period: 5s
     networks:
-      - kiira2api-network
+      - kiira2api
 
 networks:
-  kiira2api-network:
-    driver: bridge
-
+  kiira2api:
+    name: kiira2api
+  apinetwork:
+    name: apinetwork
